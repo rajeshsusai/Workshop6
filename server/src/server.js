@@ -7,6 +7,7 @@ var writeDocument = require('./database.js').writeDocument;
 var addDocument = require('./database.js').addDocument;
 var bodyParser = require('body-parser')
 var database = require('./database.js');
+var CommentSchema = require('./schemas/comment.json');
 
 app.use(bodyParser.text());
 app.use(bodyParser.json());
@@ -94,6 +95,76 @@ function postStatusUpdate(user, location, contents) {
   writeDocument('feeds', feedData);
   return newStatusUpdate;
 }
+
+function postComment(feedItemId, body) {
+  var feedItem = readDocument('feedItems', feedItemId);
+  var comment = {
+    "author": body.author,
+    "contents": body.contents,
+    "postDate": body.postDate,
+    "likeCounter": []
+  };
+  feedItem.comments.push(comment);
+  writeDocument('feedItems', feedItem);
+  return feedItem;
+}
+
+app.post('/feeditem/:feeditemid/commentthread/', validate({body: CommentSchema}), function(req, res) {
+  var body = req.body;
+  var fromUser = getUserIdFromToken(req.get('Authorization'));
+  var feedItemId = parseInt(req.params.feeditemid, 10);
+
+  if(fromUser === body.author) {
+    var comment = postComment(feedItemId, body);
+    res.status(201);
+    res.set('Location', '/feeditem/' + feedItemId + '/commentthread');
+    res.send(getFeedItemSync(feedItemId));
+  }
+  else {
+    res.status(401).end();
+  }
+});
+
+app.put('/feeditem/:feeditemId/commentthread/:commentIdx/likelist/:userId', function(req, res) {
+  var fromUser = getUserIdFromToken(req.get('Authorization'));
+  console.log(JSON.stringify(req.params))
+  var feedItemId = parseInt(req.params.feeditemId, 10);
+  var commentIdx = parseInt(req.params.commentIdx, 10);
+  var userId = parseInt(req.params.userId, 10);
+  if(fromUser === userId) {
+    var feedItem = readDocument('feedItems', feedItemId);
+    var comment = feedItem.comments[commentIdx];
+    comment.likeCounter.push(userId);
+    writeDocument('feedItems', feedItem);
+    comment.author = readDocument('users', comment.author);
+    res.send(comment)
+  }
+  else {
+    res.status(401).end();
+  }
+});
+
+app.delete('/feeditem/:feeditemId/commentthread/:commentIdx/likelist/:userId', function(req, res) {
+  var fromUser = getUserIdFromToken(req.get('Authorization'));
+  console.log(JSON.stringify(req.params))
+  var feedItemId = parseInt(req.params.feeditemId, 10);
+  var commentIdx = parseInt(req.params.commentIdx, 10);
+  var userId = parseInt(req.params.userId, 10);
+  if(fromUser === userId) {
+    var feedItem = readDocument('feedItems', feedItemId);
+    var comment = feedItem.comments[commentIdx];
+    var userIndex = comment.likeCounter.indexOf(userId);
+    if(userIndex != -1) {
+      comment.likeCounter.splice(userIndex, 1);
+      writeDocument('feedItems', feedItem);
+    }
+    comment.author = readDocument('users', comment.author);
+    res.send(comment)
+  }
+  else {
+    res.status(401).end();
+  }
+});
 
 // `POST /feeditem { userId: user, location: location, contents: contents  }`
 app.post('/feeditem',
